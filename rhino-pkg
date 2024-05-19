@@ -387,7 +387,7 @@ for i in "${entered_input[@]}"; do
     msg $"Selecting '${BPurple}${pkgs[i]}${NC}' from package manager '${BPurple}${pkgrepo[i]}${NC}'"
 done
 
-echo -n $"Are you sure? (${BGreen}y${NC}/${BRed}N${NC}) "
+echo -n $"Are you sure? (${BGreen}Y${NC}/${BRed}n${NC}) "
 read -r sure
 case "${sure:-y}" in
     Y* | y*)
