@@ -1,4 +1,20 @@
 #!/bin/bash
+# nb: the swp file that editscript relies on is provided by nano
+
+editscript(){
+  local scriptname script path swp; scriptname=$(realpath "$0" 2>/dev/null); script="${scriptname##*/}"; path="${scriptname%/*}"; swp="$path/.$script.swp"
+     [[ ! -e "$swp" ]] && printf "\n\n%s\n\n" "$swp" && (/usr/bin/nano "$scriptname") && exit
+     printf "\n%s is already being edited.\n%s exists; try fg or look in another window.\n" "$scriptname" "$swp"; exit ;}
+
+pause(){ read -p "$*" ; }
+
+[[ "$1" == @(edit|e|nano|-e|-E) ]] && editscript
+
+#rpkbin=/usr/local/bin/rpk
+#if [[ ! -f "$rpkbin" ]]
+#  then
+#    sudo apt install /cache/rhino-pkg-git.deb
+#fi
 
 tabs -4
 
@@ -36,7 +52,7 @@ functions:
     search:  Search for package(s) - Does not have a second prompt.
 
     update:  Updates all packages accessible to the wrapper - does
-             not accept <input>, instead use install to update
+    upgrade: not accept <input>, instead use install to update
              individual packages. Has a confirmation prompt.
 
     cleanup: Attempts to repair broken dependencies and remove any
@@ -176,7 +192,7 @@ case "${1}" in
             shift
         fi
         ;;
-    update)
+    update|upgrade)
         UPDATE=true
         shift
         if [[ $1 == "-y" ]]; then
@@ -405,9 +421,10 @@ for i in "${entered_input[@]}"; do
             ret=$?
             ;;
         apt)
-            if command -v nala &> /dev/null; then
-                sudo nala "${apt_cmd}" "${pkgs[i]}" -y
-                ret=$?
+             if false; then
+#            if command -v nala &> /dev/null; then
+#                sudo nala "${apt_cmd}" "${pkgs[i]}" -y
+#                ret=$?
             else
                 sudo apt "${apt_cmd}" "${pkgs[i]}" -y
                 ret=$?
