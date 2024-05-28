@@ -1,5 +1,6 @@
 # fork of rhino-pkg
-Changes the confirmation to default Y instead of default N such that it is in line with the way I've been confirming packageds in apt for ca. a decade and a half.
+Changes the confirmation to default Y instead of default N inline with the confirmations of apt and which I personally find more conveninet.
+It adds to the -Y flag there in that you do have the option of hitting n/N to stop the update.
 
 # rhino-pkg
 <img width="400" alt="placeholder-rpk" src="https://github.com/rhino-linux/rhino-pkg/assets/104327997/f1089f8d-4caa-4b27-83b7-9cc0a12ab5dc">
