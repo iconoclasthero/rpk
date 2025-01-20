@@ -38,50 +38,74 @@ if [[ -z $NO_COLOR ]]; then
     export c2=$'\u001b[0m'        # white/reset
     export c3=$'\u001b[38;5;55m'  # dark purple
     export c4=$'\u001b[38;5;98m'  # medium purple
-    export c=$(tput setaf 11)
-    export r=$(tput sgr0)
-    export b=$(tput bold)
 fi
 
-help_flag="
-$(basename "$0") version: 0.1.2
+help_flag="USAGE: $(basename $0) [function] {flag} <input>
 
-${c}${b}USAGE${r}: $(basename $0) [function] {flag} <input>
-${c}${b}  FUNCTIONS:${r}
-${c}    install${r}: Install or update individual package(s)
+functions:
+    install: Install package(s) - Prompts user to respond with
+             the number(s) associated with the desired package(s).
 
-${c}     remove${r}: Uninstall package(s)
+    remove:  Uninstall package(s) - Prompts user to respond with
+             the number(s) associated with the desired package(s).
 
-${c}     search${r}: Search for package(s)
+    search:  Search for package(s) - Does not have a second prompt.
 
-${c}     update${r}: Updates ${b}ALL${r} packages accessible to the wrapper.
-             (Use ${b}install${r} to update individual packages.)
+    update:  Updates all packages accessible to the wrapper - does
+    upgrade: not accept <input>, instead use install to update
+             individual packages. Has a confirmation prompt.
 
-${c}    upgrade${r}: Alias for update.
+    cleanup: Attempts to repair broken dependencies and remove any
+             unused packages. Does not accept <input>, but has
+             a confirmation prompt.
 
-${c}    cleanup${r}: Attempts to repair ${b}ALL${r} broken dependencies and remove any unused packages.
+flags:
+    --help/-h: Display this page
 
-${c}${b}      FLAGS${r}:
-${c}  --help/-h${r}: Display this page
+    --description/-d: By default, $(basename $0) will only display packages
+    that contain <input> within their name. Use this flag to increase
+    range and display packages with <input> in their description.
 
-${c}        --d${r}: $(basename $0) only displays packages containing <input> in their name. Use this flag to
-             increase range and display packages with <input> in their description.
+    -y: Makes functions with confirmation prompts run promptless.
 
-${c}         -y${r}: Makes functions with confirmation prompts run promptless.
+input:
+    Provide a package name or description.
 
-${c}${b}      INPUT${r}: Provide a package name or description.
-$( #Example execution:
-#    \$ $(basename $0) install foobar
-#    Found packages matching '${BPurple}foobar${NC}':
-#
-#    [${BGreen}0${NC}]: pyfoobar (${BGreen}apt${NC})
-#    [${BGreen}1${NC}]: foobarshell (${BGreen}apt${NC})
-#    [${BCyan}2${NC}]: foobar (${BCyan}flatpak${NC})
-#    [${BRed}3${NC}]: foobar-web (${BRed}snap${NC})
-#    [${BYellow}4${NC}]: foobar-bin (${BYellow}pacstall${NC})
-#    [${BYellow}5${NC}]: foobar-theme (${BYellow}pacstall${NC})
-)
-"
+Example execution:
+    \$ $(basename $0) install foobar
+    Found packages matching '${BPurple}foobar${NC}':
+
+    [${BGreen}0${NC}]: pyfoobar (${BGreen}apt${NC})
+    [${BGreen}1${NC}]: foobarshell (${BGreen}apt${NC})
+    [${BCyan}2${NC}]: foobar (${BCyan}flatpak${NC})
+    [${BRed}3${NC}]: foobar-web (${BRed}snap${NC})
+    [${BYellow}4${NC}]: foobar-bin (${BYellow}pacstall${NC})
+    [${BYellow}5${NC}]: foobar-theme (${BYellow}pacstall${NC})
+
+    Select which package to install [0-5]: 3 4 5
+    Selecting '${BPurple}foobar-web${NC}' from package manager '${BPurple}snap${NC}'
+    Selecting '${BPurple}foobar-bin${NC}' from package manager '${BPurple}pacstall${NC}'
+    Selecting '${BPurple}foobar-theme${NC}' from package manager '${BPurple}pacstall${NC}'
+    Are you sure? (${BGreen}Y${NC}/${BRed}n${NC})
+    [...]
+
+${c1}       .;:;,.  .:
+${c1}    'coooooooo:oo.';.
+${c1}  ,oooooooooooooooo    ;
+${c1} clllcccllloooooooo;c:'o
+${c1}.${c3};${c4}';:::::::::${c1}cclooooooo'
+${c3}''',${c4}::::::::::::::${c1}ccclc.
+${c3}.'''${c4};::::::::::${c2}l${c4}:::::::
+${c3} ''''${c4},:::::::::${c2}kd${c4}.
+${c3} .'''''${c4},;::${c2}ck:${c2}oW${c4}
+${c3}   ''''''''${c2}kXOM.
+${c3}     .,,:${c2}dXMK
+${c3}       ${c2}:k
+
+$(basename "$0") 0.1.2
+A package manager wrapper for Pacstall, APT, Flatpak and snap
+Developed by Elsie19 <elsie19@pm.me> for
+the Rhino Linux distribution."
 
 function msg() {
     local input="$*"
