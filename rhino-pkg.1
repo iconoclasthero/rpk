@@ -5,7 +5,8 @@
 logfile="/var/log/rpk/rpk.log"
 
 # Redirect stdout and stderr to the log file with timestamps using a while loop and date command
-exec > >(while IFS= read -r line; do echo "$(date -Im) $line"; done >> "$LOGFILE") 2>&1
+#exec > >(while IFS= read -r line; do echo "$(date -Im) $line"; done >> "$logfile") 2>&1
+exec > >(tee -a "$logfile" | while IFS= read -r line; do echo "$(date -Im) $line"; done) 2>&1
 
 # Log the executed command with timestamp
 echo "$(date -Iseconds) Executing: $0 $@"
