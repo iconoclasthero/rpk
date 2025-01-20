@@ -1,20 +1,14 @@
 #!/bin/bash
-# nb: the swp file that editscript relies on is provided by nano
 
-editscript(){
-  local scriptname script path swp; scriptname=$(realpath "$0" 2>/dev/null); script="${scriptname##*/}"; path="${scriptname%/*}"; swp="$path/.$script.swp"
-     [[ ! -e "$swp" ]] && printf "\n\n%s\n\n" "$swp" && (/usr/bin/nano "$scriptname") && exit
-     printf "\n%s is already being edited.\n%s exists; try fg or look in another window.\n" "$scriptname" "$swp"; exit ;}
+. /usr/local/bin/editscript
 
-pause(){ read -p "$*" ; }
+logfile="/var/log/rpk/rpk.log"
 
-[[ "$1" == @(edit|e|nano|-e|-E) ]] && editscript
+# Redirect stdout and stderr to the log file with timestamps using a while loop and date command
+exec > >(while IFS= read -r line; do echo "$(date -Im) $line"; done >> "$LOGFILE") 2>&1
 
-#rpkbin=/usr/local/bin/rpk
-#if [[ ! -f "$rpkbin" ]]
-#  then
-#    sudo apt install /cache/rhino-pkg-git.deb
-#fi
+# Log the executed command with timestamp
+echo "$(date -Iseconds) Executing: $0 $@"
 
 tabs -4
 
@@ -244,13 +238,13 @@ if [[ -n $UPDATE ]]; then
             sudo apt update --allow-releaseinfo-change && sudo apt upgrade
         fi
     fi
-    if command -v pacstall &> /dev/null; then
+    if command -v pacstall > /dev/null 2>>/var/log/rpk/rpk.log; then
         if [[ -n $PROMPTLESS ]]; then
-            pacstall -U |tee -a /var/log/pacstall/pacstall.log
-            pacstall -PUp |tee -a /var/log/pacstall/pacstall.log
+            pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log
+            pacstall -PUp 2>&1 |tee -a /var/log/pacstall/pacstall.log
         else
-            pacstall -U |tee -a /var/log/pacstall/pacstall.log
-            pacstall -Up |tee -a /var/log/pacstall/pacstall.log
+            pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log
+            pacstall -Up 2>&1 |tee -a /var/log/pacstall/pacstall.log
         fi
     fi
     if command -v flatpak &> /dev/null; then
@@ -380,13 +374,13 @@ if [[ -n $INSTALL ]]; then
     flatpak_cmd="install"
     snap_cmd="install"
     apt_cmd="install"
-    pacstall_cmd="-I" |tee -a /var/log/pacstall/pacstall.log
+    pacstall_cmd="-I"
     prompt $"Select which package to install" "$count"
 elif [[ -n $REMOVE ]]; then
     flatpak_cmd="remove"
     snap_cmd="remove"
     apt_cmd="remove"
-    pacstall_cmd="-R" |tee -a /var/log/pacstall/pacstall.log
+    pacstall_cmd="-R"
     prompt $"Select which package to remove" "$count"
 fi
 
