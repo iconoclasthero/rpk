@@ -238,59 +238,101 @@ printf '%s UPDATE: \n\n' "$(date -Im)" |tee -a "$logfile"
         Y* | y*) ;;
         *) exit 1 ;;
     esac
-    if command -v nala &> /dev/null; then
-        if [[ -n $PROMPTLESS ]]; then
+#    if command -v nala &> /dev/null; then
+#        if [[ -n $PROMPTLESS ]]; then
 #log
-printf '%s sudo nala upgrade -y --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"\n' "$(timestamp)" |tee -a "$logfile"
-            sudo nala upgrade -y --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"
+#printf '%s sudo nala upgrade -y --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"\n' "$(timestamp)" |tee -a "$logfile"
+#            sudo nala upgrade -y --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"
+#        else
+#log
+#printf '%s sudo nala upgrade --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"\n' "$(timestamp)" |tee -a "$logfile"
+#            sudo nala upgrade --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"
+#        fi
+#    else
+        if [[ -n $PROMPTLESS ]]; then
+
+# chaing apt update to apt upgrade is poor, lazy design.  apt update can exit for reasons that should not stop the upgrade.  errors are now caught and handled but...
+
+# CHANGE to have descrete calls giving the user the option to continue upgrade after reviewing apt update errors, e.g., becasuse a 3rd party repo is fucked up.
+
+#log
+            printf '%s sudo apt update --allow-releaseinfo-change && sudo apt upgrade -y\n' "$(timestamp)" |tee -a "$logfile"
+            aptout=( "$({sudo apt update --allow-releaseinfo-change && sudo apt upgrade -y; }|tee /dev/tty)" )
+            ec="$?"
         else
 #log
-printf '%s sudo nala upgrade --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"\n' "$(timestamp)" |tee -a "$logfile"
-            sudo nala upgrade --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"
+            printf '%s sudo apt update --allow-releaseinfo-change && sudo apt upgrade\n' "$(timestamp)" |tee -a "$logfile"
+            aptout=( "$({sudo apt update --allow-releaseinfo-change && sudo apt upgrade; }|tee /dev/tty)" )
+            ec="$?"
         fi
-    else
-        if [[ -n $PROMPTLESS ]]; then
+	#   fi  #f/if command -v nala
+
+    if (( ec )); then
+      printf 'There was an error with apt update or apt upgrade! Please investigate.\n'
 #log
-printf '%s sudo apt update --allow-releaseinfo-change && sudo apt upgrade -y\n' "$(timestamp)" |tee -a "$logfile"
-            sudo apt update --allow-releaseinfo-change && sudo apt upgrade -y
-        else
-#log
-printf '%s sudo apt update --allow-releaseinfo-change && sudo apt upgrade\n' "$(timestamp)" |tee -a "$logfile"
-            sudo apt update --allow-releaseinfo-change && sudo apt upgrade
-        fi
+      printf '%s [ERROR] apt update && apt upgrade:\n' "$(timestamp)" |tee -a "$logfile"
+      printf %s\\n "${aptout[@]}" |tee -a "$logfile"
     fi
+
     if command -v pacstall > /dev/null 2>>/var/log/rpk/rpk.log; then
         if [[ -n $PROMPTLESS ]]; then
 #log
-printf '%s pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" |tee -a "$logfile"
-            pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log
+            printf '%s pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" |tee -a "$logfile"
+            pacout=( "$(pacstall -U 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec1="$?"
 #log
-printf '%s pacstall -PUp 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" |tee -a "$logfile"
-            pacstall -PUp 2>&1 |tee -a /var/log/pacstall/pacstall.log
+            printf '%s pacstall -PUp 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" |tee -a "$logfile"
+            pacout+=( "$(pacstall -PUp 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec2="$?"
+            (( ec = ec1 || ec2 ))
         else
 #log
-printf '%s pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" |tee -a "$logfile"
-            pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log
+            printf '%s pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" |tee -a "$logfile"
+            pacout=( "$(pacstall -U 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec1="$?"
 #log
 printf '%s pacstall -Up 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" |tee -a "$logfile"
-            pacstall -Up 2>&1 |tee -a /var/log/pacstall/pacstall.log
+            pacout+=( "$(pacstall -Up 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec2="$?"
+            (( ec = ec1 || ec2 ))
         fi
+      if (( ec )); then
+        printf 'There was an error with pacstall -U or -Up! Please investigate.\n'
+#log
+        printf '%s [ERROR] pacstall -U or -Up:\n' "$(timestamp)" |tee -a "$logfile"
+        printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+      fi
     fi
     if command -v flatpak &> /dev/null; then
         if [[ -n $PROMPTLESS ]]; then
 #log
-printf '%s sudo flatpak update -y\n' "$(timestamp)" |tee -a "$logfile"
-            sudo flatpak update -y
+            printf '%s sudo flatpak update -y\n' "$(timestamp)" |tee -a "$logfile"
+            flatout=( "$(sudo flatpak update -y|tee /dev/tty)" )
+            ec="$?"
         else
 #log
-printf '%s sudo flatpak update -y\n' "$(timestamp)" |tee -a "$logfile"
-            sudo flatpak update
+            printf '%s sudo flatpak update -y\n' "$(timestamp)" |tee -a "$logfile"
+            flatout=( "$(sudo flatpak update)" )
+            ec="$?"
         fi
+      if (( ec )); then
+        printf 'There was an error with flatpak update! Please investigate.\n'
+#log
+        printf '%s [ERROR] flatpak update:\n' "$(timestamp)" |tee -a "$logfile"
+        printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+      fi
     fi
     if command -v snap &> /dev/null; then
 #log
-printf '%s sudo snap refresh\n' "$(timestamp)" |tee -a "$logfile"
-        sudo snap refresh
+        printf '%s sudo snap refresh\n' "$(timestamp)" |tee -a "$logfile"
+        snapout=( "$(sudo snap refresh|tee /dev/tty)" )
+        ec="$?"
+      if (( ec )); then
+        printf 'There was an error with snap refresh! Please investigate.\n'
+#log
+        printf '%s [ERROR] snap refresh:\n' "$(timestamp)" |tee -a "$logfile"
+        printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+      fi
     fi
     exit 0
 fi
@@ -312,44 +354,81 @@ if [[ -n $CLEANUP ]]; then
     esac
 #log
 printf '%s Attempting to repair dependencies and remove unused pacakges.\n' "$(timestamp)" |tee -a "$logfile"
-    if command -v nala &> /dev/null; then
-        if [[ -n $PROMPTLESS ]]; then
+# apt should be doing this, nala brings nothing to the table here as it just calls apt anyway!
+#    if command -v nala &> /dev/null; then
+#        if [[ -n $PROMPTLESS ]]; then
+##log
+#printf '%s sudo nala install --fix-broken && sudo nala autoremove -y\n' "$(timestamp)" |tee -a "$logfile"
+#            sudo nala install --fix-broken && sudo nala autoremove -y
+#        else
 #log
-printf '%s sudo nala install --fix-broken && sudo nala autoremove -y\n' "$(timestamp)" |tee -a "$logfile"
-            sudo nala install --fix-broken && sudo nala autoremove -y
-        else
-#log
-printf '%s sudo nala install --fix-broken && sudo nala autoremove -y\n' "$(timestamp)" |tee -a "$logfile"
-            sudo nala install --fix-broken && sudo nala autoremove
-        fi
-    else
+#printf '%s sudo nala install --fix-broken && sudo nala autoremove -y\n' "$(timestamp)" |tee -a "$logfile"
+#            sudo nala install --fix-broken && sudo nala autoremove
+#        fi
+#    else
         if [[ -n $PROMPTLESS ]]; then
 #log
 printf '$s sudo apt --fix-broken install && sudo apt auto-remove -y\n' "$(timestamp)" |tee -a "$logfile"
-            sudo apt --fix-broken install && sudo apt auto-remove -y
+            aptout=( "$({sudo apt --fix-broken install && sudo apt auto-remove -y; }|tee /dev/tty)" )
+            ec="$?"
         else
 #log
 printf '$s sudo apt --fix-broken install && sudo apt auto-remove\n' "$(timestamp)" |tee -a "$logfile"
-            sudo apt --fix-broken install && sudo apt auto-remove
+            aptout=( "$({sudo apt --fix-broken install && sudo apt auto-remove; }|tee /dev/tty)" )
+            ec="$?"
         fi
+    if (( ec )); then
+      printf 'There was an error with apt --fix-broken install or auto-remove! Please investigate.\n'
+#log
+      printf '%s [ERROR] apt --fix-broken install or auto-remove:\n' "$(timestamp)" |tee -a "$logfile"
+      printf %s\\n "${aptout[@]}" |tee -a "$logfile"
     fi
+#    fi
     if command -v flatpak &> /dev/null; then
         if [[ -n $PROMPTLESS ]]; then
 #log
-printf 'sudo flatpak repair && sudo flatpak uninstall --unused -y\n' "$(timestamp)" |tee -a "$logfile"
-            sudo flatpak repair && sudo flatpak uninstall --unused -y
+            printf 'sudo flatpak repair && sudo flatpak uninstall --unused -y\n' "$(timestamp)" |tee -a "$logfile"
+            flatout=( "$({sudo flatpak repair && sudo flatpak uninstall --unused -y; }|tee /dev/tty)" )
+            ec="$?"
         else
 #log
-printf 'sudo flatpak repair && sudo flatpak uninstall --unused\n' "$(timestamp)" |tee -a "$logfile"
-            sudo flatpak repair && sudo flatpak uninstall --unused
+            printf 'sudo flatpak repair && sudo flatpak uninstall --unused\n' "$(timestamp)" |tee -a "$logfile"
+            flatout=( "$({sudo flatpak repair && sudo flatpak uninstall --unused; }|tee /dev/tty)" )
+            ec="$?"
         fi
+      if (( ec )); then
+        printf 'There was an error with flatpak repair or uninstall --unused! Please investigate.\n'
+#log
+        printf '%s [ERROR] flatpak repair or uninstall:\n' "$(timestamp)" |tee -a "$logfile"
+        printf %s\\n "${flatout[@]}" |tee -a "$logfile"
+      fi
+
     fi
     if command -v snap &> /dev/null; then
 #log
-printf '%s $(LANG=C snap list --all | while read snapname ver rev trk pub notes; do if [[ "$notes" = *disabled* ]]; then sudo snap remove "$snapname" --revision="$rev"; fi; done)\n' "$(timestamp)" |tee -a "$logfile"
-        if [[ -z "$(LANG=C snap list --all | while read snapname ver rev trk pub notes; do if [[ "$notes" = *disabled* ]]; then sudo snap remove "$snapname" --revision="$rev"; fi; done)" ]]; then
+      printf '%s $(LANG=C snap list --all | while read snapname ver rev trk pub notes; do if [[ "$notes" = *disabled* ]]; then sudo snap remove "$snapname" --revision="$rev"; fi; done)\n' "$(timestamp)" |tee -a "$logfile"
+        unset ec
+
+# I doubt this will work, but I wouldn't use this anyway so not my fucking problem...
+# shell check reports that the changes to ec and snapout will be lost because of the pipeline
+# this will probably need to be rewritten so that this check is done properly instead of trying to bang everything together in a singe fucking pipeline that is difficult at best to follow anyway...
+
+        if [[ -z "$(LANG=C snap list --all |
+              while read snapname ver rev trk pub notes; do
+                if [[ "$notes" = *disabled* ]]; then
+                  snapout+=( "$(sudo snap remove "$snapname" --revision="$rev")" )
+                                ectemp="$?"
+                                (( ec = ec || ectemp ))
+                fi
+              done)" ]]; then
             echo "Nothing for snap to clean."
         fi
+      if (( ec )); then
+        printf 'There was an error with snap'\''s cleanup! Please investigate.\n'
+#log
+        printf '%s [ERROR] snap clean up:\n' "$(timestamp)" |tee -a "$logfile"
+        printf %s\\n "${snapout[@]}" |tee -a "$logfile"
+      fi
     fi
     exit 0
 fi
@@ -466,9 +545,16 @@ for i in "${entered_input[@]}"; do
     case "${pkgrepo[i]}" in
         flatpak)
 #log
-printf '%s sudo flatpak %s %s -y\n' "$(timestamp)" "${flatpak_cmd}" "${pkgs[i]}"
-            sudo flatpak "${flatpak_cmd}" "${pkgs[i]}" -y
+            printf '%s sudo flatpak %s %s -y\n' "$(timestamp)" "${flatpak_cmd}" "${pkgs[i]}"
+            flatout=( "$(sudo flatpak "${flatpak_cmd}" "${pkgs[i]}" -y|tee /dev/tty)" )
             ret=$?
+            ec="$ret"
+      if (( ec )); then
+        printf 'There was an error with flatpak %s %s! Please investigate.\n' "$flatpak_cmd" "${pkgs[i]}"
+#log
+        printf '%s [ERROR] flatpak %s %s:\n' "$(timestamp)" "$flatpak_cmd" "${pkgs[i]}"|tee -a "$logfile"
+        printf %s\\n "${flatout[@]}" |tee -a "$logfile"
+      fi
             ;;
         apt)
 #why forcing nala here? nala has to call apt. just call apt! fewer things to break!
@@ -477,22 +563,46 @@ printf '%s sudo flatpak %s %s -y\n' "$(timestamp)" "${flatpak_cmd}" "${pkgs[i]}"
 #                ret=$?
 #            else
 #log
-printf '%s sudo apt %s %s -y\n' "$(timestamp)" "${apt_cmd}" "${pkgs[i]}"
-                sudo apt "${apt_cmd}" "${pkgs[i]}" -y
+                printf '%s sudo apt %s %s -y\n' "$(timestamp)" "${apt_cmd}" "${pkgs[i]}"
+                aptout=( "$(sudo apt "${apt_cmd}" "${pkgs[i]}" -y|sudo tee /dev/tty)" )
                 ret=$?
-#            fi
+                ec="$ret"
+    if (( ec )); then
+      printf 'There was an error with apt %s %s! Please investigate.\n' "${apt_cmd}" "${pkgs[i]}"
+#log
+      printf '%s [ERROR] apt %s %s:\n' "$(timestamp)" "${apt_cmd}" "${pkgs[i]}"|tee -a "$logfile"
+      printf %s\\n "${aptout[@]}" |tee -a "$logfile"
+    fi
+#            fi  # fi command -v nala
+
+
+
             ;;
         pacstall)
 #log
-printf '%s pacstall %s %s |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" "$pacstall_cmd" "${pkgs[i]}"
-            pacstall "${pacstall_cmd}" "${pkgs[i]}" |tee -a /var/log/pacstall/pacstall.log
+            printf '%s pacstall %s %s |tee -a /var/log/pacstall/pacstall.log\n' "$(timestamp)" "$pacstall_cmd" "${pkgs[i]}"
+            pacout=( "$(pacstall "${pacstall_cmd}" "${pkgs[i]}" |tee /dev/tty | tee -a /var/log/pacstall/pacstall.log)" )
             ret=$?
+            ec="$ret"
+            if (( ec )); then
+              printf 'There was an error with pacstall %s %s! Please investigate.\n' "${pacstall_cmd}" "${pkgs[i]}"
+#log
+              printf '%s [ERROR] pacstall %s %s:\n' "$(timestamp)" "${pacstall_cmd}" "${pkgs[i]}"|tee -a "$logfile"
+              printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+            fi
             ;;
         snap)
 #log
-printf '%s sudo snap %s %s\n' "$(timestamp)" "${snap_cmd}" "${pkgs[i]}"
-            sudo snap "${snap_cmd}" "${pkgs[i]}"
+            printf '%s sudo snap %s %s\n' "$(timestamp)" "${snap_cmd}" "${pkgs[i]}"
+            snapout=( "$(sudo snap "${snap_cmd}" "${pkgs[i]}"|tee /dev/tty)" )
             ret=$?
+            ec="$ret"
+            if (( ec )); then
+              printf 'There was an error with snap %s %s! Please investigate.\n' "${snap_cmd}" "${pkgs[i]}"
+#log
+              printf '%s [ERROR] snap %s %s:\n' "$(timestamp)" "${snap_cmd}" "${pkgs[i]}"|tee -a "$logfile"
+              printf %s\\n "${snapout[@]}" |tee -a "$logfile"
+            fi
             ;;
         *)
             msg $"Invalid repository name!"
