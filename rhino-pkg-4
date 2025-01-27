@@ -1,0 +1,591 @@
+#!/bin/bash
+
+. /usr/local/bin/editscript
+
+logfile="/var/log/rpk/rpk.log"
+
+trap 'printf '\''\n^C received, exiting...\n(exit 130)\n'\''|tee -a "$logfile"; exit 130' SIGINT
+
+#printf '\n\n---------------------------------\n%s Executing: %s %s\n\n' "$(date -Im)" "$0" "$*" |tee -a "$logfile"
+printf '\n\n---------------------------------\n%(%Y-%m-%dT%H:%M:%S)T Executing: %s %s\n\n' -1 "$0" "$*" |tee -a "$logfile"
+
+tabs -4
+
+export TEXTDOMAIN=rhino-pkg
+if [[ -n $RHINOPKG_DEBUG ]]; then
+    export TEXTDOMAINDIR="${PWD}/locale"
+else
+    export TEXTDOMAINDIR=/usr/share/locale
+fi
+
+# Colors
+if [[ -z $NO_COLOR ]]; then
+    export NC=$'\033[0m'
+    export BGreen=$'\033[1;32m'
+    export BCyan=$'\033[1;36m'
+    export BYellow=$'\033[1;33m'
+    export BPurple=$'\033[1;35m'
+    export BRed=$'\033[1;31m'
+    export BWhite=$'\033[1;37m'
+    export c1=$'\u001b[38;5;104m' # light purple
+    export c2=$'\u001b[0m'        # white/reset
+    export c3=$'\u001b[38;5;55m'  # dark purple
+    export c4=$'\u001b[38;5;98m'  # medium purple
+    export bold="$(tput bold)"
+fi
+
+help_flag="USAGE: $(basename $0) [function] {flag} <input>
+
+functions:
+    install: Install package(s) - Prompts user to respond with
+             the number(s) associated with the desired package(s).
+
+    remove:  Uninstall package(s) - Prompts user to respond with
+             the number(s) associated with the desired package(s).
+
+    search:  Search for package(s) - Does not have a second prompt.
+
+    update:  Updates all packages accessible to the wrapper - does
+    upgrade: not accept <input>, instead use install to update
+             individual packages. Has a confirmation prompt.
+
+    cleanup: Attempts to repair broken dependencies and remove any
+             unused packages. Does not accept <input>, but has
+             a confirmation prompt.
+
+flags:
+    --help/-h: Display this page
+
+    --description/-d: By default, $(basename $0) will only display packages
+    that contain <input> within their name. Use this flag to increase
+    range and display packages with <input> in their description.
+
+    -y: Makes functions with confirmation prompts run promptless.
+
+input:
+    Provide a package name or description.
+
+Example execution:
+    \$ $(basename $0) install foobar
+    Found packages matching '${BPurple}foobar${NC}':
+
+    [${BGreen}0${NC}]: pyfoobar (${BGreen}apt${NC})
+    [${BGreen}1${NC}]: foobarshell (${BGreen}apt${NC})
+    [${BCyan}2${NC}]: foobar (${BCyan}flatpak${NC})
+    [${BRed}3${NC}]: foobar-web (${BRed}snap${NC})
+    [${BYellow}4${NC}]: foobar-bin (${BYellow}pacstall${NC})
+    [${BYellow}5${NC}]: foobar-theme (${BYellow}pacstall${NC})
+
+    Select which package to install [0-5]: 3 4 5
+    Selecting '${BPurple}foobar-web${NC}' from package manager '${BPurple}snap${NC}'
+    Selecting '${BPurple}foobar-bin${NC}' from package manager '${BPurple}pacstall${NC}'
+    Selecting '${BPurple}foobar-theme${NC}' from package manager '${BPurple}pacstall${NC}'
+    Are you sure? (${BGreen}Y${NC}/${BRed}n${NC})
+    [...]
+
+${c1}       .;:;,.  .:
+${c1}    'coooooooo:oo.';.
+${c1}  ,oooooooooooooooo    ;
+${c1} clllcccllloooooooo;c:'o
+${c1}.${c3};${c4}';:::::::::${c1}cclooooooo'
+${c3}''',${c4}::::::::::::::${c1}ccclc.
+${c3}.'''${c4};::::::::::${c2}l${c4}:::::::
+${c3} ''''${c4},:::::::::${c2}kd${c4}.
+${c3} .'''''${c4},;::${c2}ck:${c2}oW${c4}
+${c3}   ''''''''${c2}kXOM.
+${c3}     .,,:${c2}dXMK
+${c3}       ${c2}:k
+
+$(basename "$0") 0.1.2
+A package manager wrapper for Pacstall, APT, Flatpak and snap
+Developed by Elsie19 <elsie19@pm.me> for
+the Rhino Linux distribution."
+
+function msg() {
+    local input="$*"
+    echo -e "$input"
+}
+
+function prompt() {
+    local input="$1"
+    local index="$2"
+    echo -ne "$input [0-$index]: ${BWhite}"
+}
+
+function clearscr() {
+    tput cuu 1 && tput el
+}
+
+function search_pacstall() {
+    if "$DESCRIPTION"; then
+        pacstall_cmd=( pacstall -Sd "$@" )
+    else
+        pacstall_cmd=( pacstall -S "$@" )
+    fi
+
+    if ! "${pacstall_cmd[@]}" > /dev/null 2>&1; then
+        return 1
+    else
+        # remove color codes
+        local contents=("$( "${pacstall_cmd[@]}" | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g' | awk '{print $1}' )")
+        echo "${contents[@]}"
+    fi
+}
+
+function search_apt() {
+ local contents
+    if "$DESCRIPTION"; then
+#       local contents=("$(apt-cache search "$@" | awk '{print $1}')")
+        readarray -t contents < <(apt-cache search "$@")
+    else
+#       local contents=("$(apt-cache search --names-only "$@" | awk '{print $1}')")
+        readarray -t contents < <(apt-cache search --names-only "$@")
+    fi
+    if (( ${#contents[@]} > 0 )); then
+        printf %s\\n "${contents[@]}"
+    else
+        return 1
+    fi
+}
+
+function search_flatpak() {
+    if "$DESCRIPTION"; then
+        local contents=("$(LC_ALL=C sudo flatpak search --columns="application" "$@")")
+    else
+        local contents=("$(LC_ALL=C sudo flatpak search --columns="application" "$@" | grep -i --color=never "$@")")
+    fi
+    if [[ ${contents[*]} == "No matches found" ]]; then
+        return 1
+    else
+        echo "${contents[@]}"
+    fi
+}
+
+function search_snap() {
+    if "$DESCRIPTION"; then
+        local contents=("$(snap find "$@" | awk '{ print $1 }' | tail -n +2)")
+    else
+        local contents=("$(snap find "$@" | awk '{ print $1 }' | tail -n +2 | grep -i --color=never "$@")")
+    fi
+    if [[ ${contents[*]} == "No matching snaps for"* ]]; then
+        return 1
+    else
+        echo "${contents[@]}"
+    fi
+}
+
+cliargs=( "$@" )
+
+case "${1}" in
+    search)
+        SEARCH=true
+        shift
+        ;;
+    install)
+        INSTALL=true
+        shift
+        ;;
+    remove)
+        REMOVE=true
+        shift
+        ;;
+    cleanup)
+        CLEANUP=true
+        shift
+        if [[ "$1" == "-y" ]]; then
+            PROMPTLESS=true
+            shift
+        fi
+        ;;
+    update|upgrade)
+        UPDATE=true
+        shift
+        if [[ "$1" == "-y" ]]; then
+            PROMPTLESS=true
+            shift
+        fi
+        ;;
+    -h | --help)
+        echo "$help_flag"
+        exit 0
+        ;;
+    *)
+        echo "$help_flag"
+        exit 1
+        ;;
+esac
+
+if [[ "$1" == "-d" || "$1" == "--description" ]]; then
+    DESCRIPTION=true
+    shift
+else
+    DESCRIPTION=false
+fi
+
+if [[ -n "$UPDATE" ]]; then
+    if [[ -n $* ]]; then
+        printf '%s\n\n[%sERROR%s] %sThere are additional/inappropriate positional arguments after update/upgrade.%s\n(exit 1)\n\n' "$help_flag" "${BRed}" "${NC}" "$bold" "$NC"
+        exit 1
+    fi
+
+#printf '%s UPDATE: %s %s\n\n' "$(date -Im)" "$0" "${cliargs[*]}" |tee -a "$logfile"
+printf '%(%Y-%m-%dT%H:%M:%S)T UPDATE: \n\n' -1 |tee -a "$logfile"
+
+    if [[ -z $PROMPTLESS ]]; then
+        echo -n $"Are you sure you want to update all packages? (${BGreen}Y${NC}/${BRed}n${NC}) "
+        read -ra read_update
+        echo -ne "${NC}"
+    else
+            read_update=("Y")
+    fi
+    case "${read_update[0]:-y}" in
+        Y* | y*) ;;
+        *) exit 1 ;;
+    esac
+    if command -v nala &> /dev/null; then
+        if [[ -n $PROMPTLESS ]]; then
+          printf '%(%Y-%m-%dT%H:%M:%S)T sudo nala upgrade -y --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"\n' -1 |tee -a "$logfile"
+          sudo nala upgrade -y --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"
+        else
+          printf '%(%Y-%m-%dT%H:%M:%S)T sudo nala upgrade --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"\n' -1 |tee -a "$logfile"
+          sudo nala upgrade --full --no-autoremove -o Acquire::AllowReleaseInfoChange="true"
+        fi
+    else
+        if [[ -n $PROMPTLESS ]]; then
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo apt update --allow-releaseinfo-change && sudo apt upgrade -y\n' -1 |tee -a "$logfile"
+            aptout=( "$({ sudo apt update --allow-releaseinfo-change && sudo apt upgrade -y; } 2>&1 |tee /dev/tty)" )
+            ec="$?"
+        else
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo apt update --allow-releaseinfo-change && sudo apt upgrade -y\n' -1 |tee -a "$logfile"
+            aptout=( "$(sudo apt update --allow-releaseinfo-change 2>&1|tee /dev/tty)" )
+            ec1="$?"
+            if (( ec1 )); then
+              printf '\n%(%Y-%m-%dT%H:%M:%S)T [%sERROR%s] apt update:\n' -1 "${BRed}" "${NC}"|tee -a "$logfile"
+              printf '%s\n' "${aptout1[@]}" |tee -a "$logfile"
+              printf '\n\nProceed with apt uprgade? (y/N)'
+              case "${read_update[0]:-y}" in
+                Y* | y*) ;;
+                *) aptupgrade=false ;;
+              esac
+            fi
+            if "${aptupgrade:=true}"; then
+              printf '%(%Y-%m-%dT%H:%M:%S)T sudo apt upgrade\n' -1 |tee -a "$logfile"
+              aptout=( "$(sudo apt upgrade 2>&1 |tee /dev/tty)" )
+              ec="$?"
+              (( ec )) && printf '%(%Y-%m-%dT%H:%M:%S)T [%sERROR%s] apt upgrade:\n' -1 "${BRed}" "${NC}" |tee -a "$logfile"
+              printf %s\\n "${aptout[@]}" |tee -a "$logfile"
+            fi
+        fi
+    fi
+
+    if command -v pacstall > /dev/null 2>>/var/log/rpk/rpk.log; then
+        if [[ -n $PROMPTLESS ]]; then
+            printf '%(%Y-%m-%dT%H:%M:%S)T pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' -1 |tee -a "$logfile"
+            pacout=( "$(pacstall -U 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec1="$?"
+            printf '%(%Y-%m-%dT%H:%M:%S)T pacstall -PUp 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' -1 |tee -a "$logfile"
+            pacout+=( "$(pacstall -PUp 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec2="$?"
+            (( ec = ec1 || ec2 ))
+        else
+            printf '%(%Y-%m-%dT%H:%M:%S)T pacstall -U 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' -1 |tee -a "$logfile"
+            pacout=( "$(pacstall -U 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec1="$?"
+            printf '%(%Y-%m-%dT%H:%M:%S)T pacstall -Up 2>&1 |tee -a /var/log/pacstall/pacstall.log\n' -1 |tee -a "$logfile"
+            pacout+=( "$(pacstall -Up 2>&1 |tee /dev/tty|tee -a /var/log/pacstall/pacstall.log)" )
+            ec2="$?"
+            (( ec = ec1 || ec2 ))
+        fi
+      if (( ec )); then
+        printf 'There was an error with pacstall -U or -Up! Please investigate.\n'
+        printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] pacstall -U or -Up:\n' -1 |tee -a "$logfile"
+        printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+      fi
+    fi
+    if command -v flatpak &> /dev/null; then
+        if [[ -n $PROMPTLESS ]]; then
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo flatpak update -y\n' -1 |tee -a "$logfile"
+            flatout=( "$(sudo flatpak update -y|tee /dev/tty)" )
+            ec="$?"
+        else
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo flatpak update -y\n' -1 |tee -a "$logfile"
+            flatout=( "$(sudo flatpak update)" )
+            ec="$?"
+        fi
+      if (( ec )); then
+        printf 'There was an error with flatpak update! Please investigate.\n'
+        printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] flatpak update:\n' -1 |tee -a "$logfile"
+        printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+      fi
+    fi
+    if command -v snap &> /dev/null; then
+        printf '%(%Y-%m-%dT%H:%M:%S)T sudo snap refresh\n' -1 |tee -a "$logfile"
+        snapout=( "$(sudo snap refresh|tee /dev/tty)" )
+        ec="$?"
+      if (( ec )); then
+        printf 'There was an error with snap refresh! Please investigate.\n'
+        printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] snap refresh:\n' -1 |tee -a "$logfile"
+        printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+      fi
+    fi
+    exit 0
+fi
+
+if [[ -n $CLEANUP ]]; then
+    if [[ -n $* ]]; then
+        exit 1
+    fi
+    if [[ -z $PROMPTLESS ]]; then
+        echo -n $"Attempting to repair dependencies and remove unused packages. Continue? (${BGreen}y${NC}/${BRed}N${NC}) "
+        read -ra read_update
+        echo -ne "${NC}"
+    else
+        read_update=("Y")
+    fi
+    case "${read_update[0]}" in
+        Y* | y*) ;;
+        *) exit 1 ;;
+    esac
+
+    printf '%(%Y-%m-%dT%H:%M:%S)T Attempting to repair dependencies and remove unused pacakges.\n' -1 |tee -a "$logfile"
+
+# apt should be doing this, what does nala bring to the table here?
+# what if i don't want to use nala but have it on my machine!?  why do i have to remove or mask it?
+# need to add nala logging
+
+    if command -v nala &> /dev/null; then
+        if [[ -n $PROMPTLESS ]]; then
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo nala install --fix-broken && sudo nala autoremove -y\n' -1 |tee -a "$logfile"
+            sudo nala install --fix-broken && sudo nala autoremove -y
+        else
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo nala install --fix-broken && sudo nala autoremove -y\n' -1 |tee -a "$logfile"
+            sudo nala install --fix-broken && sudo nala autoremove
+        fi
+    else
+        if [[ -n $PROMPTLESS ]]; then
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo apt --fix-broken install && sudo apt auto-remove -y\n' -1 |tee -a "$logfile"
+            aptout=( "$({ sudo apt --fix-broken install && sudo apt auto-remove -y; } 2>&1|tee /dev/tty)" )
+            ec="$?"
+        else
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo apt --fix-broken install && sudo apt auto-remove\n' -1 |tee -a "$logfile"
+            aptout=( "$({ sudo apt --fix-broken install && sudo apt auto-remove; } 2>&1|tee /dev/tty)" )
+            ec="$?"
+        fi
+        if (( ec )); then
+          printf 'There was an error with apt --fix-broken install or auto-remove! Please investigate.\n'
+          printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] apt --fix-broken install or auto-remove:\n' -1 |tee -a "$logfile"
+          printf %s\\n "${aptout[@]}" |tee -a "$logfile"
+    fi
+    fi
+    if command -v flatpak &> /dev/null; then
+        if [[ -n $PROMPTLESS ]]; then
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo flatpak repair && sudo flatpak uninstall --unused -y\n' -1 |tee -a "$logfile"
+            flatout=( "$({ sudo flatpak repair && sudo flatpak uninstall --unused -y; }|tee /dev/tty)" )
+            ec="$?"
+        else
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo flatpak repair && sudo flatpak uninstall --unused\n' -1 |tee -a "$logfile"
+            flatout=( "$({ sudo flatpak repair && sudo flatpak uninstall --unused; }|tee /dev/tty)" )
+            ec="$?"
+        fi
+      if (( ec )); then
+        printf 'There was an error with flatpak repair or uninstall --unused! Please investigate.\n'
+        printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] flatpak repair or uninstall:\n' -1 |tee -a "$logfile"
+        printf %s\\n "${flatout[@]}" |tee -a "$logfile"
+      fi
+
+    fi
+    if command -v snap &> /dev/null; then
+        printf '%(%Y-%m-%dT%H:%M:%S)T $(LANG=C snap list --all | while read snapname ver rev trk pub notes; do if [[ "$notes" = *disabled* ]]; then sudo snap remove "$snapname" --revision="$rev"; fi; done)\n' -1 |tee -a "$logfile"
+        unset ec
+
+# I doubt logging will work here, but I wouldn't use this anyway so not my fucking problem...
+# shell check reports that the changes to ec and snapout will be lost because of the pipeline
+# this will probably need to be rewritten so that this check in steps instead of trying to bang everything together in a singe fucking pipeline that is difficult at best to follow anyway...
+
+        if [[ -z "$(LANG=C snap list --all |
+              while read snapname ver rev trk pub notes; do
+                if [[ "$notes" = *disabled* ]]; then
+                  snapout+=( "$(sudo snap remove "$snapname" --revision="$rev")" )
+                                ectemp="$?"
+                                (( ec = ec || ectemp ))
+                fi
+              done)" ]]; then
+            echo "Nothing for snap to clean."
+        fi
+      if (( ec )); then
+        printf 'There was an error with snap'\''s cleanup! Please investigate.\n'
+        printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] snap clean up:\n' -1 |tee -a "$logfile"
+        printf %s\\n "${snapout[@]}" |tee -a "$logfile"
+      fi
+    fi
+    exit 0
+fi
+
+# Lowercase the rest of input
+set -- "${@,,}"
+
+if command -v pacstall &> /dev/null; then
+    msg $"Searching Pacstall…"
+    pacstall_search_list=($(search_pacstall "$@"))
+    clearscr
+fi
+msg $"Searching apt…"
+readarray -t apt_search_list < <(search_apt "$@")
+clearscr
+if command -v flatpak &> /dev/null; then
+    msg $"Searching flatpak…"
+    flatpak_search_list=($(search_flatpak "$@"))
+    clearscr
+fi
+if command -v snap &> /dev/null; then
+    msg $"Searching snap…"
+    snap_search_list=($(search_snap "$@"))
+    clearscr
+fi
+
+if (( ${#pacstall_search_list[@]} == 0 && ${#apt_search_list[@]} == 0 && ${#flatpak_search_list[@]} == 0 && ${#snap_search_list[@]} == 0 )); then
+    msg $"No packages found matching '$@'!"
+    exit 1
+fi
+
+msg $"Found packages matching '${BPurple}$@${NC}':"
+echo
+
+count=0
+pkgs=()
+pkgrepo=()
+
+for i in "${flatpak_search_list[@]}"; do
+    echo -e "[${BCyan}$count${NC}]: $i (${BCyan}flatpak${NC})"
+    pkgs+=("$i")
+    pkgrepo+=("flatpak")
+    ((count++))
+done
+for i in "${apt_search_list[@]}"; do
+    echo -e "[${BGreen}$count${NC}]: $i (${BGreen}apt${NC})"
+    pkgs+=("$i")
+    pkgrepo+=("apt")
+    ((count++))
+done
+for i in "${pacstall_search_list[@]}"; do
+    echo -e "[${BYellow}$count${NC}]: $i (${BYellow}pacstall${NC})"
+    pkgs+=("$i")
+    pkgrepo+=("pacstall")
+    ((count++))
+done
+for i in "${snap_search_list[@]}"; do
+    echo -e "[${BRed}$count${NC}]: $i (${BRed}snap${NC})"
+    pkgs+=("$i")
+    pkgrepo+=("snap")
+    ((count++))
+done
+
+((count--))
+
+if [[ -n $SEARCH ]]; then
+    exit 0
+fi
+
+echo
+
+if [[ -n $INSTALL ]]; then
+    flatpak_cmd="install"
+    snap_cmd="install"
+    apt_cmd="install"
+    pacstall_cmd="-I"
+    prompt $"Select which package to install" "$count"
+elif [[ -n $REMOVE ]]; then
+    flatpak_cmd="remove"
+    snap_cmd="remove"
+    apt_cmd="remove"
+    pacstall_cmd="-R"
+    prompt $"Select which package to remove" "$count"
+fi
+
+read -ra entered_input
+echo -ne "${NC}"
+if ((count == 0)) && [[ -z ${entered_input[*]} ]]; then
+    entered_input="0"
+elif [[ ! ${entered_input[*]} =~ ^(([0-9])\s?)+ ]]; then
+    msg $"'${entered_input[*]}' is not a valid number"
+    exit 1
+fi
+
+for i in "${entered_input[@]}"; do
+#log deferred till confirmation
+    msg $"Selecting '${BPurple}${pkgs[i]}${NC}' from package manager '${BPurple}${pkgrepo[i]}${NC}'"
+done
+
+echo -n $"Are you sure? (${BGreen}Y${NC}/${BRed}n${NC}) "
+read -r sure
+case "${sure:-y}" in
+    Y* | y*)
+        true
+        ;;
+    *)
+        exit 1
+        ;;
+esac
+#deferred logging
+printf '%(%Y-%m-%dT%H:%M:%S)T Selecting %s from package manager %s to install or remove\n' -1 "${pkgs[i]}" "${pkgrepo[i]}"
+
+for i in "${entered_input[@]}"; do
+    case "${pkgrepo[i]}" in
+        flatpak)
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo flatpak %s %s -y\n' -1 "${flatpak_cmd}" "${pkgs[i]}"
+            flatout=( "$(sudo flatpak "${flatpak_cmd}" "${pkgs[i]}" -y|tee /dev/tty)" )
+            ret=$?
+            ec="$ret"
+      if (( ec )); then
+        printf 'There was an error with flatpak %s %s! Please investigate.\n' "$flatpak_cmd" "${pkgs[i]}"
+        printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] flatpak %s %s:\n' -1 "$flatpak_cmd" "${pkgs[i]}"|tee -a "$logfile"
+        printf %s\\n "${flatout[@]}" |tee -a "$logfile"
+      fi
+            ;;
+        apt)
+#need nala logging if using nala
+            if command -v nala &> /dev/null; then
+                sudo nala "${apt_cmd}" "${pkgs[i]}" -y
+                ret=$?
+            else
+                printf '%(%Y-%m-%dT%H:%M:%S)T sudo apt %s %s -y\n' -1 "${apt_cmd}" "${pkgs[i]%% *}"
+                aptout=( "$(sudo apt "${apt_cmd}" "${pkgs[i]%% *}" -y 2>&1|sudo tee /dev/tty)" )
+                ret=$?
+                ec="$ret"
+                if (( ec )); then
+                  printf 'There was an error with apt %s %s! Please investigate.\n' "${apt_cmd}" "${pkgs[i]}"
+                  printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] apt %s %s:\n' -1 "${apt_cmd}" "${pkgs[i]}"|tee -a "$logfile"
+                  printf %s\\n "${aptout[@]}" |tee -a "$logfile"
+                fi
+            fi  # fi command -v nala
+            ;;
+        pacstall)
+            printf '%(%Y-%m-%dT%H:%M:%S)T pacstall %s %s |tee -a /var/log/pacstall/pacstall.log\n' -1 "$pacstall_cmd" "${pkgs[i]}"
+            pacout=( "$(pacstall "${pacstall_cmd}" "${pkgs[i]}" |tee /dev/tty | tee -a /var/log/pacstall/pacstall.log)" )
+            ret=$?
+            ec="$ret"
+            if (( ec )); then
+              printf 'There was an error with pacstall %s %s! Please investigate.\n' "${pacstall_cmd}" "${pkgs[i]}"
+              printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] pacstall %s %s:\n' -1 "${pacstall_cmd}" "${pkgs[i]}"|tee -a "$logfile"
+              printf %s\\n "${pacout[@]}" |tee -a "$logfile"
+            fi
+            ;;
+        snap)
+            printf '%(%Y-%m-%dT%H:%M:%S)T sudo snap %s %s\n' -1 "${snap_cmd}" "${pkgs[i]}"
+            snapout=( "$(sudo snap "${snap_cmd}" "${pkgs[i]}"|tee /dev/tty)" )
+            ret=$?
+            ec="$ret"
+            if (( ec )); then
+              printf 'There was an error with snap %s %s! Please investigate.\n' "${snap_cmd}" "${pkgs[i]}"
+              printf '%(%Y-%m-%dT%H:%M:%S)T [ERROR] snap %s %s:\n' -1 "${snap_cmd}" "${pkgs[i]}"|tee -a "$logfile"
+              printf %s\\n "${snapout[@]}" |tee -a "$logfile"
+            fi
+            ;;
+        *)
+            msg $"Invalid repository name!"
+            exit 1
+            ;;
+    esac
+done
+
+exit "$ret"
