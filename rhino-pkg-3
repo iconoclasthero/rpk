@@ -6,7 +6,8 @@ logfile="/var/log/rpk/rpk.log"
 
 trap 'printf '\''\n^C received, exiting...\n(exit 130)\n'\''|tee -a "$logfile"; exit 130' SIGINT
 
-printf '\n\n---------------------------------\n%s Executing: %s %s\n\n' "$(date -Im)" "$0" "$*" |tee -a "$logfile"
+#printf '\n\n---------------------------------\n%s Executing: %s %s\n\n' "$(date -Im)" "$0" "$*" |tee -a "$logfile"
+printf '\n\n---------------------------------\n%(%Y-%m-%dT%H:%M:%S)T Executing: %s %s\n\n' -1 "$0" "$*" |tee -a "$logfile"
 
 tabs -4
 
