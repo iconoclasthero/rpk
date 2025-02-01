@@ -7,7 +7,7 @@ Adds upgrade to the options so that you can use the same verb as apt (along with
 
 Adds logging.
 
-Cleans up a lot of bad bash.
+Cleans up some of the bash... though the original array splats might need to be looked at again.
 
 Adds the package descriptions from apt-cache instead of omitting them.
 
